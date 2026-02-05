@@ -5,9 +5,10 @@ extends Node3D
 
 const NeighborFinder = preload("res://scripts/neighbor_finder.gd")
 const DebugClickHandler = preload("res://scripts/debug_click_handler.gd")
+const Avatar = preload("res://scripts/avatar.gd")
 
 @export var point_count: int = 1000
-@export var color_count: int = 1
+@export var color_count: int = 4
 @export var debug_mode: bool = true
 @export var terrain_mode: bool = false  # Use earth-like terrain coloring
 @export var sphere_radius: float = 5.0
@@ -39,6 +40,7 @@ var line_mesh_instance: MeshInstance3D
 var debug_handler: Node3D
 var triangle_mesh_instance: MeshInstance3D
 var generated_areas: Array[Area3D] = []
+var avatar: Avatar = null
 
 # Full color palette (will use first color_count colors)
 var full_palette: Array[Color] = [
@@ -79,6 +81,8 @@ func regenerate() -> void:
 	draw_edges()
 	draw_edge_triangles()
 
+	_setup_avatar()
+
 	if terrain_mode:
 		print("Generated %d points on sphere with terrain coloring" % points.size())
 	else:
@@ -107,6 +111,11 @@ func _clear_generated() -> void:
 		if is_instance_valid(area):
 			area.queue_free()
 	generated_areas.clear()
+
+	# Clear avatar
+	if avatar and is_instance_valid(avatar):
+		avatar.queue_free()
+		avatar = null
 
 	points.clear()
 
@@ -232,12 +241,38 @@ func _setup_debug_handler() -> void:
 	add_child(debug_handler)
 	debug_handler.node_clicked.connect(_on_node_clicked)
 	debug_handler.edge_clicked.connect(_on_edge_clicked)
+	debug_handler.node_right_clicked.connect(_on_node_right_clicked)
 
 func _on_node_clicked(node_id: String, pos: Vector3) -> void:
 	print("Node clicked: %s at %s" % [node_id, pos])
 
 func _on_edge_clicked(edge_id: String, pos: Vector3) -> void:
 	print("Edge clicked: %s at %s" % [edge_id, pos])
+
+func _on_node_right_clicked(node_index: int, pos: Vector3) -> void:
+	"""Handle right-click on a node - move avatar if it's a neighbor."""
+	if not avatar:
+		return
+
+	var current_node: int = avatar.get_current_node()
+	var neighbors := neighbor_finder.get_neighbors(current_node)
+
+	# PackedInt32Array uses find() instead of has()
+	if neighbors.find(node_index) != -1:
+		avatar.move_to_node(node_index, points[node_index])
+		print("Avatar moved to node %d" % node_index)
+	else:
+		print("Cannot move to node %d - not a neighbor of current node %d" % [node_index, current_node])
+
+func _setup_avatar() -> void:
+	"""Create and initialize the avatar at node 0."""
+	avatar = Avatar.new()
+	add_child(avatar)
+
+	# Start avatar at node 0
+	if points.size() > 0:
+		avatar.initialize(0, points[0])
+		print("Avatar initialized at node 0")
 
 func generate_fibonacci_points() -> void:
 	"""Generate points on sphere using Fibonacci spiral distribution."""
@@ -395,89 +430,93 @@ func get_neighbor_finder() -> NeighborFinder:
 	return neighbor_finder
 
 func draw_edge_triangles() -> void:
-	"""Draw small triangles along each edge, filling ~1/3 of each adjacent face."""
+	"""Draw small triangles along each edge, filling ~1/3 of each adjacent face.
+
+	Each parent edge (A-B) creates exactly 2 small triangles (one toward each adjacent face).
+	These 2 triangles share the edge A-B as their base and get the same color.
+	"""
 	var edge_data := neighbor_finder.get_all_edge_triangles()
 
-	# Use configurable number of colors from the full palette
+	# Build color palette from configured color count
 	var palette: Array[Color] = []
 	for i in range(color_count):
 		palette.append(full_palette[i % full_palette.size()])
 
+	# Storage for mesh data
 	var vertices := PackedVector3Array()
 	var normals := PackedVector3Array()
 	var colors := PackedColorArray()
-	var edge_colors: Array[Color] = []  # Track color per edge for non-terrain mode
 
+	# Process each edge and create triangles with consistent coloring
+	var edge_index: int = 0
 	for data in edge_data:
 		var edge: Vector2i = data["edge"]
 		var adjacent: PackedInt32Array = data["adjacent"]
 
-		var p_a := points[edge.x]
-		var p_b := points[edge.y]
-		var edge_midpoint := (p_a + p_b) / 2.0
+		# Pick ONE color for this edge - all triangles from this edge share it
+		# Use edge_index for deterministic color selection
+		var this_edge_color: Color = palette[edge_index % palette.size()]
+		edge_index += 1
 
-		# Pick one color for this edge (both triangles will share it)
-		var edge_color := palette[randi() % palette.size()]
+		var p_a: Vector3 = points[edge.x]
+		var p_b: Vector3 = points[edge.y]
+		var edge_midpoint: Vector3 = (p_a + p_b) / 2.0
 
-		# Create a triangle toward each adjacent vertex
+		# Create triangles toward each adjacent vertex (typically 2 per edge)
 		for adj_idx in adjacent:
-			var p_c := points[adj_idx]
+			var p_c: Vector3 = points[adj_idx]
 
-			# Calculate apex: 1/3 of the way from edge midpoint toward opposite vertex
-			var apex := edge_midpoint.lerp(p_c, triangle_fill_ratio)
+			# Apex is 1/3 of the way from edge midpoint toward opposite vertex
+			var apex: Vector3 = edge_midpoint.lerp(p_c, triangle_fill_ratio)
 
-			# Calculate face normal from current winding: (B-A) × (C-A)
-			var ab := p_b - p_a
-			var ac := p_c - p_a
-			var face_normal := ab.cross(ac).normalized()
+			# Calculate face normal: (B-A) × (C-A)
+			var ab: Vector3 = p_b - p_a
+			var ac: Vector3 = p_c - p_a
+			var face_normal: Vector3 = ab.cross(ac).normalized()
 
-			# Check if winding is correct (normal should point outward from sphere)
-			var centroid := (p_a + p_b + p_c) / 3.0
-			var winding_correct := face_normal.dot(centroid) > 0
+			# Ensure normal points outward (away from sphere center)
+			var centroid: Vector3 = (p_a + p_b + p_c) / 3.0
+			var winding_correct: bool = face_normal.dot(centroid) > 0
 
-			# Add triangle vertices with consistent CCW winding (viewed from outside)
+			# Add vertices with correct winding order (CCW when viewed from outside)
 			if winding_correct:
 				vertices.append(p_a)
 				vertices.append(p_b)
 				vertices.append(apex)
 			else:
-				# Swap p_a and p_b to reverse winding
 				vertices.append(p_b)
 				vertices.append(p_a)
 				vertices.append(apex)
-				face_normal = -face_normal  # Flip normal to match new winding
+				face_normal = -face_normal
 
+			# Add normals (same for all 3 vertices of flat triangle)
 			normals.append(face_normal)
 			normals.append(face_normal)
 			normals.append(face_normal)
 
-			# Store edge color for this triangle
-			edge_colors.append(edge_color)
+			# Add colors (same for all 3 vertices) - skip if terrain mode
+			if not terrain_mode:
+				colors.append(this_edge_color)
+				colors.append(this_edge_color)
+				colors.append(this_edge_color)
 
-	# Determine colors for all triangles
+	# For terrain mode, override colors based on position/noise
 	if terrain_mode:
 		colors = _calculate_terrain_colors_with_spread(vertices)
-	else:
-		# Use pre-assigned edge colors (both triangles per edge share same color)
-		for edge_color in edge_colors:
-			colors.append(edge_color)
-			colors.append(edge_color)
-			colors.append(edge_color)
 
-	# Create ArrayMesh
+	# Build the mesh
 	var array_mesh := ArrayMesh.new()
 	var arrays := []
 	arrays.resize(Mesh.ARRAY_MAX)
 	arrays[Mesh.ARRAY_VERTEX] = vertices
 	arrays[Mesh.ARRAY_NORMAL] = normals
 	arrays[Mesh.ARRAY_COLOR] = colors
-
 	array_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
 
-	# Create material that uses vertex colors
+	# Material with vertex colors
 	var material := StandardMaterial3D.new()
 	material.vertex_color_use_as_albedo = true
-	material.cull_mode = BaseMaterial3D.CULL_DISABLED  # Visible from both sides
+	material.cull_mode = BaseMaterial3D.CULL_DISABLED
 
 	array_mesh.surface_set_material(0, material)
 
@@ -485,9 +524,8 @@ func draw_edge_triangles() -> void:
 	triangle_mesh_instance.mesh = array_mesh
 	add_child(triangle_mesh_instance)
 
-	print("Drew %d edge triangles" % (vertices.size() / 3))
+	print("Drew %d edge triangles (%d edges, %d colors)" % [vertices.size() / 3, edge_index, color_count])
 
-	# Verify coplanarity
 	if debug_mode:
 		_verify_triangle_coplanarity()
 

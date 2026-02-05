@@ -17,7 +17,7 @@ script = ExtResource("1_main")
 [node name="SphereGenerator" type="Node3D" parent="."]
 script = ExtResource("2_sphere")
 point_count = 1000
-color_count = 1
+color_count = 4
 sphere_radius = 5.0
 point_size = 0.025
 

@@ -9,7 +9,7 @@ extends Camera3D
 @export var max_distance: float = 50.0
 @export var light_energy: float = 1.2
 
-var orbit_angles: Vector2 = Vector2(0, 0)  # x = horizontal, y = vertical
+var orbit_angles: Vector2 = Vector2(0, 0.6)  # x = horizontal, y = vertical (start looking at top where avatar spawns)
 var is_dragging: bool = false
 var camera_light: DirectionalLight3D
 

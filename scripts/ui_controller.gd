@@ -8,7 +8,7 @@ signal terrain_mode_changed(enabled: bool)
 
 @export var min_colors: int = 1
 @export var max_colors: int = 16
-@export var default_colors: int = 1
+@export var default_colors: int = 4
 
 @export var min_nodes: int = 100
 @export var max_nodes: int = 2000
