@@ -1,0 +1,42 @@
+[gd_scene load_steps=6 format=3 uid="uid://c1abc123main"]
+
+[ext_resource type="Script" path="res://scripts/main.gd" id="1_main"]
+[ext_resource type="Script" path="res://scripts/sphere_generator.gd" id="2_sphere"]
+[ext_resource type="Script" path="res://scripts/camera_controller.gd" id="3_camera"]
+[ext_resource type="Script" path="res://scripts/ui_controller.gd" id="4_ui"]
+
+[sub_resource type="Environment" id="Environment_1"]
+background_mode = 1
+background_color = Color(0.1, 0.1, 0.15, 1)
+ambient_light_source = 2
+ambient_light_color = Color(0.3, 0.3, 0.35, 1)
+
+[node name="Main" type="Node3D"]
+script = ExtResource("1_main")
+
+[node name="SphereGenerator" type="Node3D" parent="."]
+script = ExtResource("2_sphere")
+point_count = 1000
+color_count = 1
+sphere_radius = 5.0
+point_size = 0.025
+
+[node name="Camera3D" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 15)
+script = ExtResource("3_camera")
+orbit_distance = 15.0
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_1")
+
+[node name="UILayer" type="CanvasLayer" parent="."]
+
+[node name="UIController" type="Control" parent="UILayer"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("4_ui")
