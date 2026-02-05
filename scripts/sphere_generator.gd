@@ -406,6 +406,7 @@ func draw_edge_triangles() -> void:
 	var vertices := PackedVector3Array()
 	var normals := PackedVector3Array()
 	var colors := PackedColorArray()
+	var edge_colors: Array[Color] = []  # Track color per edge for non-terrain mode
 
 	for data in edge_data:
 		var edge: Vector2i = data["edge"]
@@ -414,6 +415,9 @@ func draw_edge_triangles() -> void:
 		var p_a := points[edge.x]
 		var p_b := points[edge.y]
 		var edge_midpoint := (p_a + p_b) / 2.0
+
+		# Pick one color for this edge (both triangles will share it)
+		var edge_color := palette[randi() % palette.size()]
 
 		# Create a triangle toward each adjacent vertex
 		for adj_idx in adjacent:
@@ -447,17 +451,18 @@ func draw_edge_triangles() -> void:
 			normals.append(face_normal)
 			normals.append(face_normal)
 
+			# Store edge color for this triangle
+			edge_colors.append(edge_color)
+
 	# Determine colors for all triangles
 	if terrain_mode:
 		colors = _calculate_terrain_colors_with_spread(vertices)
 	else:
-		# Random colors from palette
-		var tri_count := vertices.size() / 3
-		for i in range(tri_count):
-			var tri_color := palette[randi() % palette.size()]
-			colors.append(tri_color)
-			colors.append(tri_color)
-			colors.append(tri_color)
+		# Use pre-assigned edge colors (both triangles per edge share same color)
+		for edge_color in edge_colors:
+			colors.append(edge_color)
+			colors.append(edge_color)
+			colors.append(edge_color)
 
 	# Create ArrayMesh
 	var array_mesh := ArrayMesh.new()
