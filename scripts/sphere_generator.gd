@@ -513,8 +513,9 @@ func draw_edge_triangles() -> void:
 	arrays[Mesh.ARRAY_COLOR] = colors
 	array_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
 
-	# Material with vertex colors
+	# Material with vertex colors (unshaded so colors appear regardless of lighting)
 	var material := StandardMaterial3D.new()
+	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	material.vertex_color_use_as_albedo = true
 	material.cull_mode = BaseMaterial3D.CULL_DISABLED
 

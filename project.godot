@@ -6,7 +6,7 @@
 
 config/name="Spherolization"
 run/main_scene="res://main.tscn"
-config/features=PackedStringArray("4.6", "Forward Plus")
+config/features=PackedStringArray("4.6", "GL Compatibility")
 
 [display]
 
@@ -15,4 +15,5 @@ window/size/viewport_height=720
 
 [rendering]
 
-renderer/rendering_method="forward_plus"
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"

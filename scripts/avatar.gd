@@ -27,11 +27,8 @@ func _create_avatar_mesh() -> void:
 	sphere_mesh.rings = 8
 
 	var material := StandardMaterial3D.new()
+	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	material.albedo_color = avatar_color
-	material.emission_enabled = true
-	material.emission = avatar_color * 0.3
-	material.metallic = 0.3
-	material.roughness = 0.4
 	sphere_mesh.material = material
 
 	mesh_instance = MeshInstance3D.new()

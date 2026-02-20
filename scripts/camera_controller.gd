@@ -21,7 +21,7 @@ func _setup_camera_light() -> void:
 	"""Create a directional light attached to the camera."""
 	camera_light = DirectionalLight3D.new()
 	camera_light.light_energy = light_energy
-	camera_light.shadow_enabled = true
+	camera_light.shadow_enabled = false
 	add_child(camera_light)
 
 func _input(event: InputEvent) -> void:
