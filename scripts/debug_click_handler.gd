@@ -106,9 +106,9 @@ func _hide_label() -> void:
 
 func generate_node_id(index: int, position: Vector3) -> String:
 	"""Generate a unique ID for a node based on index and position."""
-	# Use index + position hash for uniqueness
-	var lat := rad_to_deg(asin(position.normalized().y))
-	var lon := rad_to_deg(atan2(position.normalized().z, position.normalized().x))
+	var n := position.normalized()
+	var lat := rad_to_deg(asin(n.y))
+	var lon := rad_to_deg(atan2(n.z, n.x))
 	return "N%d_%.0f,%.0f" % [index, lat, lon]
 
 func generate_edge_id(index: int, node_a: int, node_b: int) -> String:

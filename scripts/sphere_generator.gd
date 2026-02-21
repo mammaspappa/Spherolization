@@ -11,6 +11,7 @@ const Avatar = preload("res://scripts/avatar.gd")
 @export var color_count: int = 4
 @export var debug_mode: bool = true
 @export var terrain_mode: bool = false  # Use earth-like terrain coloring
+@export var draw_triangles: bool = false  # Fill edge triangles (off by default for cleaner debug view)
 @export var sphere_radius: float = 5.0
 @export var point_size: float = 0.025
 @export var triangle_fill_ratio: float = 0.333  # How far toward opposite vertex (1/3)
@@ -79,7 +80,8 @@ func regenerate() -> void:
 	find_neighbors()
 	visualize_points()
 	draw_edges()
-	draw_edge_triangles()
+	if draw_triangles:
+		draw_edge_triangles()
 
 	_setup_avatar()
 
@@ -132,6 +134,11 @@ func set_color_count(count: int) -> void:
 func set_terrain_mode(enabled: bool) -> void:
 	"""Enable or disable terrain coloring mode."""
 	terrain_mode = enabled
+	regenerate()
+
+func set_draw_triangles(enabled: bool) -> void:
+	"""Enable or disable triangle fill on edges."""
+	draw_triangles = enabled
 	regenerate()
 
 func _init_terrain_noise() -> void:
@@ -300,6 +307,22 @@ func find_neighbors() -> void:
 	neighbor_finder = NeighborFinder.new(points)
 	neighbor_finder.find_all_neighbors()
 
+	var crossings := neighbor_finder.find_crossing_edges()
+	if crossings.is_empty():
+		print("No crossing edges found.")
+	else:
+		var all_edges := neighbor_finder.get_edges()
+		var planar_limit := 3 * points.size() - 6
+		print("Found %d crossing edge pair(s) (edges=%d, planar limit=%d):" % [crossings.size(), all_edges.size(), planar_limit])
+		var show_count := mini(5, crossings.size())
+		for k in range(show_count):
+			var pair := crossings[k]
+			var e1 := all_edges[pair.x]
+			var e2 := all_edges[pair.y]
+			print("  E%d_%d-%d crosses E%d_%d-%d" % [pair.x, e1.x, e1.y, pair.y, e2.x, e2.y])
+		if crossings.size() > show_count:
+			print("  ... and %d more" % (crossings.size() - show_count))
+
 func visualize_points() -> void:
 	"""Create visual representations of each point, color-coded by type."""
 	var hex_mesh := SphereMesh.new()
@@ -435,12 +458,13 @@ func draw_edge_triangles() -> void:
 	Each parent edge (A-B) creates exactly 2 small triangles (one toward each adjacent face).
 	These 2 triangles share the edge A-B as their base and get the same color.
 	"""
-	var edge_data := neighbor_finder.get_all_edge_triangles()
+	var edges := neighbor_finder.get_edges()
 
 	# Build color palette from configured color count
 	var palette: Array[Color] = []
 	for i in range(color_count):
 		palette.append(full_palette[i % full_palette.size()])
+	var palette_size := palette.size()
 
 	# Storage for mesh data
 	var vertices := PackedVector3Array()
@@ -448,14 +472,12 @@ func draw_edge_triangles() -> void:
 	var colors := PackedColorArray()
 
 	# Process each edge and create triangles with consistent coloring
-	var edge_index: int = 0
-	for data in edge_data:
-		var edge: Vector2i = data["edge"]
-		var adjacent: PackedInt32Array = data["adjacent"]
+	var edge_index := 0
+	for edge in edges:
+		var adjacent := neighbor_finder.get_edge_adjacent_vertices(edge)
 
 		# Pick ONE color for this edge - all triangles from this edge share it
-		# Use edge_index for deterministic color selection
-		var this_edge_color: Color = palette[edge_index % palette.size()]
+		var this_edge_color := palette[edge_index % palette_size]
 		edge_index += 1
 
 		var p_a: Vector3 = points[edge.x]
@@ -532,14 +554,13 @@ func draw_edge_triangles() -> void:
 
 func _verify_triangle_coplanarity() -> void:
 	"""Verify that small triangles are coplanar with their parent triangles."""
-	var edge_data: Array[Dictionary] = neighbor_finder.get_all_edge_triangles()
+	var edges := neighbor_finder.get_edges()
 	var tolerance: float = 0.0001
 	var errors: int = 0
 	var checked: int = 0
 
-	for data in edge_data:
-		var edge: Vector2i = data["edge"]
-		var adjacent: PackedInt32Array = data["adjacent"]
+	for edge in edges:
+		var adjacent := neighbor_finder.get_edge_adjacent_vertices(edge)
 
 		var p_a: Vector3 = points[edge.x]
 		var p_b: Vector3 = points[edge.y]

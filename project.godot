@@ -13,6 +13,12 @@ config/features=PackedStringArray("4.6", "GL Compatibility")
 window/size/viewport_width=1280
 window/size/viewport_height=720
 
+[debug]
+
+file_logging/enable_file_logging=true
+file_logging/log_path="//home/localuser/Spherolization/logs/godot.log"
+file_logging/max_log_files=20
+
 [rendering]
 
 renderer/rendering_method="gl_compatibility"

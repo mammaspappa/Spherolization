@@ -10,6 +10,7 @@ func _ready() -> void:
 	ui_controller.color_count_changed.connect(_on_color_count_changed)
 	ui_controller.node_count_changed.connect(_on_node_count_changed)
 	ui_controller.terrain_mode_changed.connect(_on_terrain_mode_changed)
+	ui_controller.draw_triangles_changed.connect(_on_draw_triangles_changed)
 
 func _on_color_count_changed(count: int) -> void:
 	sphere_generator.set_color_count(count)
@@ -19,3 +20,6 @@ func _on_node_count_changed(count: int) -> void:
 
 func _on_terrain_mode_changed(enabled: bool) -> void:
 	sphere_generator.set_terrain_mode(enabled)
+
+func _on_draw_triangles_changed(enabled: bool) -> void:
+	sphere_generator.set_draw_triangles(enabled)

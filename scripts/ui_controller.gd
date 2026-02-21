@@ -5,6 +5,7 @@ extends Control
 signal color_count_changed(count: int)
 signal node_count_changed(count: int)
 signal terrain_mode_changed(enabled: bool)
+signal draw_triangles_changed(enabled: bool)
 
 @export var min_colors: int = 1
 @export var max_colors: int = 16
@@ -19,6 +20,7 @@ var color_label: Label
 var node_slider: HSlider
 var node_label: Label
 var terrain_checkbox: CheckBox
+var triangles_checkbox: CheckBox
 
 func _ready() -> void:
 	_create_ui()
@@ -91,6 +93,13 @@ func _create_ui() -> void:
 	terrain_checkbox.toggled.connect(_on_terrain_checkbox_toggled)
 	vbox.add_child(terrain_checkbox)
 
+	# Draw triangles checkbox (off by default)
+	triangles_checkbox = CheckBox.new()
+	triangles_checkbox.text = "Draw Triangles"
+	triangles_checkbox.button_pressed = false
+	triangles_checkbox.toggled.connect(_on_triangles_checkbox_toggled)
+	vbox.add_child(triangles_checkbox)
+
 	# Instructions
 	var instructions := Label.new()
 	instructions.text = "Drag sliders to adjust\nLeft-click + drag: rotate\nScroll: zoom"
@@ -110,6 +119,9 @@ func _on_node_slider_changed(value: float) -> void:
 
 func _on_terrain_checkbox_toggled(enabled: bool) -> void:
 	terrain_mode_changed.emit(enabled)
+
+func _on_triangles_checkbox_toggled(enabled: bool) -> void:
+	draw_triangles_changed.emit(enabled)
 
 func get_color_count() -> int:
 	return int(color_slider.value)

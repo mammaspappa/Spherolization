@@ -1,12 +1,14 @@
 class_name NeighborFinder
 extends RefCounted
 
-## Finds nearest neighbors for points on a sphere using k-nearest with edge trimming.
-## Uses union of neighbor relationships, then trims excess edges by length.
-
-const MAX_NEIGHBORS: int = 7  # Maximum neighbors per point before trimming
-const SEARCH_NEIGHBORS: int = 8  # Search radius for potential neighbors (wider than target)
-const TARGET_NEIGHBORS: int = 6  # Target neighbor count for hexagonal points
+## Finds neighbors using stereographic projection + Godot's built-in 2D Delaunay.
+## Algorithm ported from test/node_3d.gd.
+##
+## Points are in Godot's Y-up coordinate system.
+## Stereographic projection from north pole (0,1,0):
+##   unit-sphere point (px, py, pz)  →  2D (px/(1-py), pz/(1-py))
+## This maps sphere → plane while preserving the Delaunay property,
+## so the 2D Delaunay triangulation equals the spherical Delaunay triangulation.
 
 var points: PackedVector3Array
 var neighbors: Array[PackedInt32Array] = []  # For each point, indices of neighbors
@@ -17,165 +19,64 @@ func _init(point_array: PackedVector3Array) -> void:
 	points = point_array
 
 func find_all_neighbors() -> void:
-	"""Find neighbors for all points using k-nearest with union and trimming."""
+	"""Find neighbors using stereographic projection + 2D Delaunay triangulation."""
 	neighbors.clear()
 	neighbors.resize(points.size())
 	is_pentagonal.resize(points.size())
 
-	# Step 1: Find 6-nearest neighbors for each point
-	var k_nearest: Array[PackedInt32Array] = []
-	k_nearest.resize(points.size())
-
+	# Step 1: Project sphere points to 2D via stereographic projection from north pole.
+	var points_2d := PackedVector2Array()
+	points_2d.resize(points.size())
 	for i in range(points.size()):
-		k_nearest[i] = _find_nearest_neighbors(i, SEARCH_NEIGHBORS)
+		var p := points[i].normalized()
+		var denom := 1.0 - p.y
+		if denom < 1e-6:
+			denom = 1e-6  # Guard against division by zero at the exact north pole
+		points_2d[i] = Vector2(p.x / denom, p.z / denom)
 
-	# Step 2: Build edges using union (A->B OR B->A)
-	_build_edge_list_union(k_nearest)
+	# Step 2: Delaunay triangulation of the projected 2D points.
+	var triangles := Geometry2D.triangulate_delaunay(points_2d)
+	print("Delaunay: %d triangles from %d points" % [triangles.size() / 3, points.size()])
 
-	# Step 3: Build initial neighbor lists from edges
-	_build_neighbor_lists_from_edges()
+	# Step 3: Extract unique edges from the triangle list.
+	edges.clear()
+	var edge_set := {}
+	for i in range(0, triangles.size(), 3):
+		var id_a := triangles[i]
+		var id_b := triangles[i + 1]
+		var id_c := triangles[i + 2]
+		var e1 := Vector2i(mini(id_a, id_b), maxi(id_a, id_b))
+		var e2 := Vector2i(mini(id_b, id_c), maxi(id_b, id_c))
+		var e3 := Vector2i(mini(id_c, id_a), maxi(id_c, id_a))
+		if not edge_set.has(e1):
+			edge_set[e1] = true
+			edges.append(e1)
+		if not edge_set.has(e2):
+			edge_set[e2] = true
+			edges.append(e2)
+		if not edge_set.has(e3):
+			edge_set[e3] = true
+			edges.append(e3)
+	print("Edges from Delaunay: %d (planar limit: %d)" % [edges.size(), 3 * points.size() - 6])
 
-	# Step 4: Trim excess neighbors (keep shortest edges)
-	_trim_excess_neighbors()
+	# Step 4: Build neighbor lists from edges.
+	for i in range(points.size()):
+		neighbors[i] = PackedInt32Array()
+	for edge in edges:
+		var a := edge.x
+		var b := edge.y
+		var na := neighbors[a]
+		na.append(b)
+		neighbors[a] = na
+		var nb := neighbors[b]
+		nb.append(a)
+		neighbors[b] = nb
 
-	# Step 5: Rebuild edge list from trimmed neighbors
-	_rebuild_edges_from_neighbors()
-
-	# Step 6: Identify pentagonal points
+	# Step 5: Identify pentagonal points.
 	_identify_pentagonal_points()
 
 	var pent_count := is_pentagonal.count(1)
 	print("Found %d pentagonal points and %d hexagonal points" % [pent_count, points.size() - pent_count])
-
-func _find_nearest_neighbors(point_index: int, count: int) -> PackedInt32Array:
-	"""Find the nearest 'count' neighbors for a given point."""
-	var distances: Array[Dictionary] = []
-	var point := points[point_index]
-
-	for i in range(points.size()):
-		if i == point_index:
-			continue
-		distances.append({
-			"index": i,
-			"distance": point.distance_squared_to(points[i])
-		})
-
-	distances.sort_custom(func(a, b): return a["distance"] < b["distance"])
-
-	var result := PackedInt32Array()
-	for i in range(count):
-		result.append(distances[i]["index"])
-
-	return result
-
-func _build_edge_list_union(k_nearest: Array[PackedInt32Array]) -> void:
-	"""Build edge list using union of k-nearest relationships."""
-	edges.clear()
-	var edge_set := {}
-
-	for i in range(points.size()):
-		for neighbor_idx in k_nearest[i]:
-			var edge := Vector2i(mini(i, neighbor_idx), maxi(i, neighbor_idx))
-			if not edge_set.has(edge):
-				edge_set[edge] = true
-				edges.append(edge)
-
-	print("Initial edges (union): %d" % edges.size())
-
-func _build_neighbor_lists_from_edges() -> void:
-	"""Build neighbor lists from edge list."""
-	for i in range(points.size()):
-		neighbors[i] = PackedInt32Array()
-
-	for edge in edges:
-		var a := edge.x
-		var b := edge.y
-
-		var neighbors_a := neighbors[a]
-		neighbors_a.append(b)
-		neighbors[a] = neighbors_a
-
-		var neighbors_b := neighbors[b]
-		neighbors_b.append(a)
-		neighbors[b] = neighbors_b
-
-func _trim_excess_neighbors() -> void:
-	"""Iteratively remove longest edges until all points have <= MAX_NEIGHBORS."""
-	var max_iterations := 100
-	var iteration := 0
-
-	while iteration < max_iterations:
-		iteration += 1
-		var trimmed_any := false
-
-		for i in range(points.size()):
-			var point_neighbors := neighbors[i]
-			if point_neighbors.size() <= MAX_NEIGHBORS:
-				continue
-
-			trimmed_any = true
-
-			# Sort neighbors by distance
-			var neighbor_distances: Array[Dictionary] = []
-			for n in point_neighbors:
-				neighbor_distances.append({
-					"index": n,
-					"distance": points[i].distance_squared_to(points[n])
-				})
-			neighbor_distances.sort_custom(func(a, b): return a["distance"] < b["distance"])
-
-			# Find the farthest neighbor to remove
-			var to_remove: int = neighbor_distances[neighbor_distances.size() - 1]["index"]
-
-			# Remove from both sides
-			var new_neighbors_i := PackedInt32Array()
-			for n in neighbors[i]:
-				if n != to_remove:
-					new_neighbors_i.append(n)
-			neighbors[i] = new_neighbors_i
-
-			var new_neighbors_r := PackedInt32Array()
-			for n in neighbors[to_remove]:
-				if n != i:
-					new_neighbors_r.append(n)
-			neighbors[to_remove] = new_neighbors_r
-
-		if not trimmed_any:
-			break
-
-	print("Trimming completed after %d iterations" % iteration)
-
-func _rebuild_edges_from_neighbors() -> void:
-	"""Rebuild edge list from neighbor lists (all edges, not just mutual)."""
-	edges.clear()
-	var edge_set := {}
-
-	for i in range(points.size()):
-		for neighbor_idx in neighbors[i]:
-			var edge := Vector2i(mini(i, neighbor_idx), maxi(i, neighbor_idx))
-			if not edge_set.has(edge):
-				edge_set[edge] = true
-				edges.append(edge)
-
-	print("Final edges (after trimming): %d" % edges.size())
-
-	# Update neighbor lists to be symmetric (if A->B exists, ensure B->A exists)
-	for i in range(points.size()):
-		neighbors[i] = PackedInt32Array()
-
-	for edge in edges:
-		var a := edge.x
-		var b := edge.y
-
-		var neighbors_a := neighbors[a]
-		if not neighbors_a.has(b):
-			neighbors_a.append(b)
-		neighbors[a] = neighbors_a
-
-		var neighbors_b := neighbors[b]
-		if not neighbors_b.has(a):
-			neighbors_b.append(a)
-		neighbors[b] = neighbors_b
 
 func _identify_pentagonal_points() -> void:
 	"""Identify pentagonal (5 neighbors) vs hexagonal (6+ neighbors) points."""
@@ -186,8 +87,8 @@ func _identify_pentagonal_points() -> void:
 		else:
 			is_pentagonal[i] = 0
 
-		if neighbor_count < 5 or neighbor_count > 7:
-			print("Warning: Point %d has %d neighbors" % [i, neighbor_count])
+		if neighbor_count < 3:
+			print("Warning: Point %d has only %d neighbors" % [i, neighbor_count])
 
 func get_neighbors(point_index: int) -> PackedInt32Array:
 	"""Get neighbor indices for a specific point."""
@@ -211,10 +112,8 @@ func get_pentagonal_indices() -> PackedInt32Array:
 
 func get_edge_adjacent_vertices(edge: Vector2i) -> PackedInt32Array:
 	"""Find vertices that form triangles with this edge (shared neighbors of both endpoints)."""
-	var a := edge.x
-	var b := edge.y
-	var neighbors_a := neighbors[a]
-	var neighbors_b := neighbors[b]
+	var neighbors_a := neighbors[edge.x]
+	var neighbors_b := neighbors[edge.y]
 
 	var result := PackedInt32Array()
 	for n in neighbors_a:
@@ -222,13 +121,40 @@ func get_edge_adjacent_vertices(edge: Vector2i) -> PackedInt32Array:
 			result.append(n)
 	return result
 
-func get_all_edge_triangles() -> Array[Dictionary]:
-	"""Get triangle data for each edge: {edge: Vector2i, adjacent: PackedInt32Array}."""
-	var result: Array[Dictionary] = []
-	for edge in edges:
-		var adjacent := get_edge_adjacent_vertices(edge)
-		result.append({
-			"edge": edge,
-			"adjacent": adjacent
-		})
-	return result
+func find_crossing_edges() -> Array[Vector2i]:
+	"""Detect pairs of edges whose geodesic arcs cross on the sphere surface.
+
+	Two great-circle arcs (A,B) and (C,D) cross iff each pair of endpoints
+	straddles the other arc's great-circle plane:
+	  (n_cd · A)(n_cd · B) < 0  AND  (n_ab · C)(n_ab · D) < 0
+	where n_ab = A × B, n_cd = C × D.
+	"""
+	var crossings: Array[Vector2i] = []
+	var n := edges.size()
+
+	for i in range(n):
+		var e1 := edges[i]
+		var a := points[e1.x]
+		var b := points[e1.y]
+		var n_ab := a.cross(b)
+
+		for j in range(i + 1, n):
+			var e2 := edges[j]
+
+			# Skip edges sharing an endpoint
+			if e2.x == e1.x or e2.x == e1.y or e2.y == e1.x or e2.y == e1.y:
+				continue
+
+			var c := points[e2.x]
+			var d := points[e2.y]
+			var n_cd := c.cross(d)
+
+			if n_cd.dot(a) * n_cd.dot(b) >= 0.0:
+				continue
+
+			if n_ab.dot(c) * n_ab.dot(d) >= 0.0:
+				continue
+
+			crossings.append(Vector2i(i, j))
+
+	return crossings
